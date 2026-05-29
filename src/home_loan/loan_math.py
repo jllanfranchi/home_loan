@@ -6,7 +6,7 @@ import logging
 from collections.abc import Mapping, MutableMapping, Sequence
 from copy import copy
 from inspect import signature
-from typing import Any, NewType, Optional, Union
+from typing import Any, NewType, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -14,8 +14,8 @@ import numpy.typing as npt
 import pandas as pd
 from scipy import optimize
 
-__author__ = "J.L. Lanfranchi"
-__copyright__ = "Copyright 2026, J.L. Lanfranchi"
+__author__ = "Justin L. Lanfranchi"
+__copyright__ = "Copyright (c) 2026, Justin L. Lanfranchi"
 __license__ = "MIT"
 
 
@@ -38,7 +38,7 @@ __all__ = [
     "generic_optimizer",
     "brute_force_optimizer",
     "calc_down_payment_from_cash_at_closing",
-    "calc_down_payment_for_monthly_payment",
+    "calc_down_payment_for_monthly_cost",
 ]
 
 
@@ -335,7 +335,7 @@ def print_info(info: Info, summary_only: bool = False, plot: bool = False):
     print(f" (monthly interest = {monthly_rate_pct:.5f}%)")
     print(f"Monthly mortgage payment:    {monthly_mortgage_payment:9,.3f} k$")
     print(
-        f"Total monthly payment:       {total_monthly_payment :9,.3f} k$"
+        f"Total monthly cost:          {total_monthly_cost :9,.3f} k$"
         " (incl. maint. expenses)"
     )
     print(
@@ -482,10 +482,10 @@ def generate_report(  # pylint: disable=too-many-arguments, too-many-locals, too
         )
     else:
         if cesspool_inspection_cost != 0:
-            logger.warning("Forcing cesspool inspection cost to 0 since no cesspool")
+            #logger.warning("Forcing cesspool inspection cost to 0 since no cesspool")
             cesspool_inspection_cost = 0
         if annual_maintenance_cost != 0:
-            logger.warning("Forcing cesspool maintenance cost to 0 since no cesspool")
+            #logger.warning("Forcing cesspool maintenance cost to 0 since no cesspool")
             annual_cesspool_maintenance_cost = 0
         cesspool_maintenance_cost_monthly = 0
 
@@ -552,6 +552,36 @@ def generate_report(  # pylint: disable=too-many-arguments, too-many-locals, too
     }
     total_non_mortgage_monthly_costs = sum(non_mortgage_monthly_costs.values())
 
+    # ==
+
+    labels_monthly_cost = [
+        "monthly_mortgage_payment"
+    ] + labels_non_mortgage_monthly_costs
+    lcls = locals()
+    monthly_cost = {lbl: lcls[lbl] for lbl in labels_monthly_cost}
+
+    total_monthly_cost = sum(monthly_cost.values())
+
+    (
+        loan_balance_at_resale,
+        total_interest_paid,
+        total_mortgage_payments,
+    ) = compounding(
+        principal=principal,
+        interest_rate_pct=monthly_rate_pct,
+        payment=monthly_mortgage_payment,
+        num_periods=min(home_held_months, loan_period_months),
+    )
+    total_principal_paid = total_mortgage_payments - total_interest_paid
+    total_value_owned_at_resale = home_value_at_resale - loan_balance_at_resale
+    interest_per_month = total_interest_paid / home_held_months
+
+    loan_lifetime_non_mortgage_monthly_costs = (
+        total_non_mortgage_monthly_costs * home_held_months
+    )
+
+    # ==
+
     mortgage_tax = principal * mortgage_tax_pct / 100
     title_insurance = purchase_price * title_insurance_pct / 100
     realtor_fee = purchase_price * realtor_fee_pct / 100
@@ -584,34 +614,6 @@ def generate_report(  # pylint: disable=too-many-arguments, too-many-locals, too
 
     total_one_time_costs = sum(one_time_costs.values())
 
-    # ==
-
-    labels_monthly_payment = [
-        "monthly_mortgage_payment"
-    ] + labels_non_mortgage_monthly_costs
-    lcls = locals()
-    monthly_payment = {lbl: lcls[lbl] for lbl in labels_monthly_payment}
-
-    total_monthly_payment = sum(monthly_payment.values())
-
-    (
-        loan_balance_at_resale,
-        total_interest_paid,
-        total_mortgage_payments,
-    ) = compounding(
-        principal=principal,
-        interest_rate_pct=monthly_rate_pct,
-        payment=monthly_mortgage_payment,
-        num_periods=min(home_held_months, loan_period_months),
-    )
-    total_principal_paid = total_mortgage_payments - total_interest_paid
-    total_value_owned_at_resale = home_value_at_resale - loan_balance_at_resale
-    interest_per_month = total_interest_paid / home_held_months
-
-    loan_lifetime_non_mortgage_monthly_costs = (
-        total_non_mortgage_monthly_costs * home_held_months
-    )
-
     labels_cost_of_ownership = [
         "down_payment",
         "total_principal_paid",
@@ -632,21 +634,27 @@ def generate_report(  # pylint: disable=too-many-arguments, too-many-locals, too
     monthly_payment_at_closing = 0 * monthly_mortgage_payment
     homeowners_insurance_at_closing = 2 * homeowners_insurance_monthly
 
-    labels_non_down_payment_cash_at_closing = [
+    # labels_non_down_payment_cash_at_closing = [
+    #     "taxes_at_closing",
+    #     "monthly_payment_at_closing",
+    #     "homeowners_insurance_at_closing",
+    #     "total_one_time_costs",
+    # ]
+    # lcls = locals()
+    # non_down_payment_cash_at_closing = {
+    #     lbl: lcls[lbl] for lbl in labels_non_down_payment_cash_at_closing
+    # }
+    # total_non_down_payment_cash_at_closing = sum(
+    #     non_down_payment_cash_at_closing.values()
+    # )
+
+    labels_cash_at_closing = [
+        "down_payment",
         "taxes_at_closing",
         "monthly_payment_at_closing",
         "homeowners_insurance_at_closing",
         "total_one_time_costs",
     ]
-    lcls = locals()
-    non_down_payment_cash_at_closing = {
-        lbl: lcls[lbl] for lbl in labels_non_down_payment_cash_at_closing
-    }
-    total_non_down_payment_cash_at_closing = sum(
-        non_down_payment_cash_at_closing.values()
-    )
-
-    labels_cash_at_closing = ["down_payment"] + labels_non_down_payment_cash_at_closing
     lcls = locals()
     cash_at_closing = {lbl: lcls[lbl] for lbl in labels_cash_at_closing}
     total_cash_at_closing = sum(cash_at_closing.values())
@@ -666,15 +674,15 @@ def generate_report(  # pylint: disable=too-many-arguments, too-many-locals, too
 
 
 def merge_params(
-    updated_params: Params | None, default_params: Params | None
+    default_params: Params | None = None, **updated_params
 ) -> Params:
     """Create a new set of params by merging `updated_params` into
     `default_params` without modifying either of the original objects.
 
     Parameters
     ----------
-    updated_params
     default_params
+    **updated_params
 
     Returns
     -------
@@ -815,8 +823,8 @@ def generic_optimizer(  # pylint: disable=too-many-arguments
     bounds: Optional[Sequence[float]],
     target_name: str,
     target_val: float,
-    updated_params: Params | None,
-    default_params: Params | None,
+    default_params: Params | None = None,
+    **updated_params
 ) -> tuple[float, float, Info]:
     """Vary `vary_name` within optional `bounds` such that target `target_name`
     reaches `target_val` given `default_params` with any values specified in
@@ -828,8 +836,8 @@ def generic_optimizer(  # pylint: disable=too-many-arguments
     bounds
     target_name
     target_val
-    updated_params
     default_params
+    **updated_params
 
     Returns
     -------
@@ -843,7 +851,7 @@ def generic_optimizer(  # pylint: disable=too-many-arguments
 
     """
 
-    params = merge_params(updated_params=updated_params, default_params=default_params)
+    params = merge_params(default_params=default_params, **updated_params)
 
     result = optimize.minimize_scalar(
         fun=quadratic_cost,
@@ -863,8 +871,8 @@ def brute_force_optimizer(  # pylint: disable=too-many-arguments
     values: Sequence[float],
     target_name: str,
     target_val: float,
-    updated_params: Params | None,
-    default_params: Params | None,
+    default_params: Params | None = None,
+    **updated_params
 ) -> tuple[float, float, Info, npt.NDArray, npt.NDArray]:
     """Try every value in `values` for param `vary_name` and see which one
     yields a param `target_name` nearest to `target_val`. Start with
@@ -877,8 +885,8 @@ def brute_force_optimizer(  # pylint: disable=too-many-arguments
     values
     target_name
     target_val
-    updated_params
     default_params
+    **updated_params
 
     Returns
     -------
@@ -890,7 +898,7 @@ def brute_force_optimizer(  # pylint: disable=too-many-arguments
 
     """
 
-    params = merge_params(updated_params=updated_params, default_params=default_params)
+    params = merge_params(default_params=default_params, **updated_params)
 
     costs = np.empty(shape=(len(values),))
     ys = np.empty_like(costs)
@@ -914,18 +922,19 @@ def calc_down_payment_from_cash_at_closing(
     total_cash_at_closing: float,
     min_down_payment_pct: float,
     max_down_payment_pct: float,
-    updated_params: Params | None,
-    default_params: Params | None,
+    default_params: Params | None = None,
+    **updated_params
 ) -> tuple[float, float, Info]:
-    """Calculate the down payment possible given cash available at closing.
+    """Calculate the down payment possible given total cash available at
+    closing.
 
     Parameters
     ----------
     total_cash_at_closing
     min_down_payment_pct
     max_down_payment_pct
-    updated_params
     default_params
+    **updated_params
 
     Returns
     -------
@@ -943,19 +952,19 @@ def calc_down_payment_from_cash_at_closing(
         bounds=[min_down_payment_pct, max_down_payment_pct],
         target_name="total_cash_at_closing",
         target_val=total_cash_at_closing,
-        updated_params=updated_params,
         default_params=default_params,
+        **updated_params
     )
 
     return info["down_payment"], down_payment_pct, info
 
 
-def calc_down_payment_for_monthly_payment(
-    total_monthly_payment: float,
+def calc_down_payment_for_monthly_cost(
+    total_monthly_cost: float,
     min_down_payment_pct: float,
     max_down_payment_pct: float,
-    updated_params: Params | None,
-    default_params: Params | None,
+    default_params: Params | None = None,
+    **updated_params
 ) -> tuple[float, float, dict[str, Any]]:
     """Calculate the down payment required to achieve a target monthly payment
     on the house (including homeowners insurance, property taxes, and mortgage
@@ -963,11 +972,11 @@ def calc_down_payment_for_monthly_payment(
 
     Parameters
     ----------
-    total_monthly_payment
+    total_monthly_cost
     min_down_payment_pct
     max_down_payment_pct
-    updated_params
     default_params
+    **updated_params
 
     Returns
     -------
@@ -980,13 +989,13 @@ def calc_down_payment_for_monthly_payment(
     assert 0 <= min_down_payment_pct <= 100
     assert 0 <= max_down_payment_pct <= 100
 
-    down_payment_pct, total_monthly_payment, info = generic_optimizer(
+    down_payment_pct, total_monthly_cost, info = generic_optimizer(
         vary_name="down_payment_pct",
         bounds=[min_down_payment_pct, max_down_payment_pct],
-        target_name="total_monthly_payment",
-        target_val=total_monthly_payment,
-        updated_params=updated_params,
+        target_name="total_monthly_cost",
+        target_val=total_monthly_cost,
         default_params=default_params,
+        **updated_params
     )
 
     return info["down_payment"], down_payment_pct, info
