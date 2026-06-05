@@ -321,6 +321,7 @@ def print_info(info: Info, summary_only: bool = False, plot: bool = False):
     """
 
     globals().update(info)
+
     # pylint: disable=undefined-variable
     print(f"Purchase price:              {purchase_price:7,.1f}   k$")
     print(f"Down payment pct:            {down_payment/purchase_price * 100:7,.1f}   %")
@@ -329,8 +330,8 @@ def print_info(info: Info, summary_only: bool = False, plot: bool = False):
     print(f"Loan term:                   {loan_period_years:5,.0f}     years")
     print(f"Sold after:                  {home_held_years:5,.0f}     years")
     print(f"Points:                      {points:5,.0f}")
-    print(f"Points fee:                  {point_fee:7,.1f}   k$")
-    print(f"Pct reduction due to points: {point_pct:8,.2f}  %")
+    print(f"Points fee:                  {points_fee:7,.1f}   k$")
+    print(f"Pct reduction due to points: {points_pct:8,.2f}  %")
     print(f"Resulting APR:               {apr:9.3f} %", end="")
     print(f" (monthly interest = {monthly_rate_pct:.5f}%)")
     print(f"Monthly mortgage payment:    {monthly_mortgage_payment:9,.3f} k$")
@@ -360,6 +361,7 @@ def generate_report(  # pylint: disable=too-many-arguments, too-many-locals, too
     purchase_price: float,
     down_payment_pct: float,
     points: float,
+    points_pct: float,
     loan_period_years: float,
     home_held_years: float,
     apr: float,
@@ -401,7 +403,9 @@ def generate_report(  # pylint: disable=too-many-arguments, too-many-locals, too
     points
         number of points purchased to reduce the loan rate; here, each point
         costs an additional 1% of the purchase price of the house in additional
-        down payment and reduces the apr by 0.25%
+        down payment and reduces the apr by `points_pct`
+    points_pct
+        amount the number of points specified above reduce APR by
     loan_period_years
         period of the loan in years; e.g., 5, 15, or 30
     home_held_years
@@ -482,10 +486,8 @@ def generate_report(  # pylint: disable=too-many-arguments, too-many-locals, too
         )
     else:
         if cesspool_inspection_cost != 0:
-            #logger.warning("Forcing cesspool inspection cost to 0 since no cesspool")
             cesspool_inspection_cost = 0
         if annual_maintenance_cost != 0:
-            #logger.warning("Forcing cesspool maintenance cost to 0 since no cesspool")
             annual_cesspool_maintenance_cost = 0
         cesspool_maintenance_cost_monthly = 0
 
@@ -510,13 +512,6 @@ def generate_report(  # pylint: disable=too-many-arguments, too-many-locals, too
     amortized_annual_maintenance_cost = total_maintenance_cost / home_held_years
     amortized_monthly_maintenance_cost = amortized_annual_maintenance_cost / 12
 
-    point_fee = 0.0
-    point_pct = 0.0
-    if points:
-        point_fee = (points / 100) * purchase_price
-        point_pct = points / 4
-        apr -= point_pct
-
     # == Print header == #
 
     if disp:
@@ -526,6 +521,14 @@ def generate_report(  # pylint: disable=too-many-arguments, too-many-locals, too
 
     principal = purchase_price * (1 - down_payment_pct / 100)  # k$
     down_payment = purchase_price * down_payment_pct / 100
+
+    points_fee = 0.0
+    if points:
+        points_fee = (points / 100) * principal
+        apr -= points_pct
+    elif points_pct:
+        logger.warning("`points` = 0 but `points_pct` not 0; forcing `points_pct` to 0")
+        points_pct = 0.0
 
     monthly_rate_pct = apr / 12
     monthly_mortgage_payment = calc_payment_for_payoff(
@@ -562,6 +565,8 @@ def generate_report(  # pylint: disable=too-many-arguments, too-many-locals, too
 
     total_monthly_cost = sum(monthly_cost.values())
 
+    num_periods = min(home_held_months, loan_period_months)
+    logger.debug("num_periods = %d", num_periods)
     (
         loan_balance_at_resale,
         total_interest_paid,
@@ -570,7 +575,7 @@ def generate_report(  # pylint: disable=too-many-arguments, too-many-locals, too
         principal=principal,
         interest_rate_pct=monthly_rate_pct,
         payment=monthly_mortgage_payment,
-        num_periods=min(home_held_months, loan_period_months),
+        num_periods=num_periods,
     )
     total_principal_paid = total_mortgage_payments - total_interest_paid
     total_value_owned_at_resale = home_value_at_resale - loan_balance_at_resale
@@ -589,7 +594,7 @@ def generate_report(  # pylint: disable=too-many-arguments, too-many-locals, too
 
     labels_one_time_costs = [
         "realtor_fee",
-        "point_fee",
+        "points_fee",
         "mortgage_tax",
         "title_insurance",
         "attorneys_fees",
@@ -634,20 +639,6 @@ def generate_report(  # pylint: disable=too-many-arguments, too-many-locals, too
     monthly_payment_at_closing = 0 * monthly_mortgage_payment
     homeowners_insurance_at_closing = 2 * homeowners_insurance_monthly
 
-    # labels_non_down_payment_cash_at_closing = [
-    #     "taxes_at_closing",
-    #     "monthly_payment_at_closing",
-    #     "homeowners_insurance_at_closing",
-    #     "total_one_time_costs",
-    # ]
-    # lcls = locals()
-    # non_down_payment_cash_at_closing = {
-    #     lbl: lcls[lbl] for lbl in labels_non_down_payment_cash_at_closing
-    # }
-    # total_non_down_payment_cash_at_closing = sum(
-    #     non_down_payment_cash_at_closing.values()
-    # )
-
     labels_cash_at_closing = [
         "down_payment",
         "taxes_at_closing",
@@ -673,9 +664,7 @@ def generate_report(  # pylint: disable=too-many-arguments, too-many-locals, too
     return info
 
 
-def merge_params(
-    default_params: Params | None = None, **updated_params
-) -> Params:
+def merge_params(default_params: Params | None = None, **updated_params) -> Params:
     """Create a new set of params by merging `updated_params` into
     `default_params` without modifying either of the original objects.
 
@@ -824,7 +813,7 @@ def generic_optimizer(  # pylint: disable=too-many-arguments
     target_name: str,
     target_val: float,
     default_params: Params | None = None,
-    **updated_params
+    **updated_params,
 ) -> tuple[float, float, Info]:
     """Vary `vary_name` within optional `bounds` such that target `target_name`
     reaches `target_val` given `default_params` with any values specified in
@@ -872,7 +861,7 @@ def brute_force_optimizer(  # pylint: disable=too-many-arguments
     target_name: str,
     target_val: float,
     default_params: Params | None = None,
-    **updated_params
+    **updated_params,
 ) -> tuple[float, float, Info, npt.NDArray, npt.NDArray]:
     """Try every value in `values` for param `vary_name` and see which one
     yields a param `target_name` nearest to `target_val`. Start with
@@ -923,7 +912,7 @@ def calc_down_payment_from_cash_at_closing(
     min_down_payment_pct: float,
     max_down_payment_pct: float,
     default_params: Params | None = None,
-    **updated_params
+    **updated_params,
 ) -> tuple[float, float, Info]:
     """Calculate the down payment possible given total cash available at
     closing.
@@ -953,7 +942,7 @@ def calc_down_payment_from_cash_at_closing(
         target_name="total_cash_at_closing",
         target_val=total_cash_at_closing,
         default_params=default_params,
-        **updated_params
+        **updated_params,
     )
 
     return info["down_payment"], down_payment_pct, info
@@ -964,7 +953,7 @@ def calc_down_payment_for_monthly_cost(
     min_down_payment_pct: float,
     max_down_payment_pct: float,
     default_params: Params | None = None,
-    **updated_params
+    **updated_params,
 ) -> tuple[float, float, dict[str, Any]]:
     """Calculate the down payment required to achieve a target monthly payment
     on the house (including homeowners insurance, property taxes, and mortgage
@@ -995,7 +984,7 @@ def calc_down_payment_for_monthly_cost(
         target_name="total_monthly_cost",
         target_val=total_monthly_cost,
         default_params=default_params,
-        **updated_params
+        **updated_params,
     )
 
     return info["down_payment"], down_payment_pct, info
